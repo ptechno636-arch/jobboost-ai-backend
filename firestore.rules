@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Profil utilisateur : lecture par le propriétaire uniquement.
+    // Écriture cliente limitée aux champs non sensibles (displayName).
+    // "plan" et "credits" ne sont modifiés QUE par le backend
+    // (via Firebase Admin, qui n'est pas soumis à ces règles).
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.plan == 'free'
+                    && request.resource.data.credits == 1;
+
+      allow update: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['displayName', 'updatedAt']);
+
+      allow delete: if request.auth != null && request.auth.uid == uid;
+
+      // Sous-collection des documents générés (analyses de CV, lettres...)
+      match /documents/{docId} {
+        allow read, delete: if request.auth != null && request.auth.uid == uid;
+        // La création se fait côté serveur (Admin SDK), pas depuis le client.
+        allow create, update: if false;
+      }
+    }
+
+    // Transactions de paiement : lecture par le propriétaire, aucune
+    // écriture cliente. Le backend (Admin SDK) est seul à créer/modifier.
+    match /transactions/{transactionId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    // Tout le reste est refusé par défaut.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
